@@ -21,7 +21,7 @@ class TestPredict(unittest.TestCase):
         self.assertEqual(action, "CHECK_INVENTORY")
 
     def test_empty_text_is_unknown(self):
-        self.assertEqual(worker.predict("    "), ("UNKOWN", 0.0))
+        self.assertEqual(worker.predict("    "), ("UNKNOWN", 0.0))
 
     def test_confidence_range(self):
         _, confidence = worker.predict("look around")
