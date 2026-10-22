@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>The AI Archive</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <main>
+        <header>
+            <div>
+                <small>5CCSACCA REFERENCE CLIENT</small>
+                <h1>The AI Archive</h1>
+            </div>
+            <span id="health">● connecting</span>
+        </header>
+
+        <section id="auth" class="card auth">
+            <h2>Enter the archive</h2>
+            <input id="email" type="email" value="student@example.com">
+            <input id="password" value="coursework" type="password">
+            <button id="register">Register</button>
+            <button id="login" class="plain">Log in</button>
+            <p id="error"></p>
+        </section>
+
+        <section id="game" hidden>
+            <div class="grid">
+                <article class="card scene">
+                    <span id="status"></span>
+                    <b id="turn"></b>
+                    <div class="orb">✦</div>
+                    <h2 id="room"></h2>
+                    <p id="description"></p>
+                    <div id="exits"></div>
+                </article>
+
+                <aside class="card">
+                    <h3>Inventory</h3>
+                    <div id="inventory"></div>
+                    <h3>Fragments</h3>
+                    <div class="meter">
+                        <i id="progress"></i>
+                    </div>
+                    <button id="newGame" class="plain wide">New game</button>
+                    <button id="logout" class="plain wide">Log out</button>
+                </aside>
+            </div>
+
+            <div class="grid lower">
+                <article class="card">
+                    <h3>Command console</h3>
+                    <div id="history"></div>
+                    <form id="form">
+                        <input id="command" maxlength="250" placeholder="Try: take the access card">
+                        <button>Send</button>
+                    </form>
+                    <div class="quick">
+                        <button data-cmd="look around">Look</button>
+                        <button data-cmd="show inventory">Inventory</button>
+                        <button data-cmd="give me a hint">Ask AI</button>
+                    </div>
+                </article>
+
+                <aside class="card">
+                    <h3>Archive Guide</h3>
+                    <small>AI Assistant</small>
+                    <p id="narrative">Validated guidance appears here.</p>
+                    <div id="pipeline">Waiting to assist</div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

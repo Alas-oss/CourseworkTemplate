@@ -1,0 +1,41 @@
+name: ai-archive
+# To be complete
+services:
+
+  api:
+    build: ./api
+    env_file: .env
+    ports:
+      - "8000:8000"
+
+  semantic-worker:
+    build: ./semantic_worker
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  llm-worker:
+    build: ./llm_worker
+    env_file: .env
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+
+  tests:
+    build: ./tests
+    profiles:
+      - test
+    environment:
+      BASE_URL: "http://api:8000"
+    depends_on:
+      api:
+        condition: service_healthy
+      llm-worker:
+        condition: service_started
