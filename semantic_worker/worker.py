@@ -1,18 +1,19 @@
 import json
 import os
 import re
+import time
 import uuid
 
+import pika
 from sentence_transformers import SentenceTransformer, util
 
 
-MODEL_NAME = os.getenv(
-    "SEMANTIC_MODEL",
-    "sentence-transformers/all-MiniLM-L6-v2"
+MODEL_NAME = (
+    os.getenv("SEMANTIC_MODEL") or "sentence-transformers/all-MiniLM-L6-v2"
 )
 
 CONFIDENCE_THRESHOLD = float(
-    os.getenv("SEMANTIC_CONFIDENCE_THRESHOLD", "0.35")
+    os.getenv("SEMANTIC_CONFIDENCE_THRESHOLD") or "0.35"
 )
 
 
@@ -205,4 +206,42 @@ def callback(ch, m, p, b):
             requeue=False
         )
 
-# Connect to the queue
+QUEUE_IN = "semantic.requests"
+QUEUE_OUT = "semantic.results"
+
+
+def connect(url, retries=30, delay=2):
+    for attempt in range(1, retries + 1):
+        try:
+            return pika.BlockingConnection(pika.URLParameters(url))
+        except pika.exceptions.AMQPConnectionError:
+            print(
+                f"RabbitMQ not ready (attempt {attempt}/{retries})",
+                flush=True
+            )
+            time.sleep(delay)
+
+    raise RuntimeError("Could not connect to RabbitMQ")
+
+
+def main():
+    connection = connect(
+        os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+    )
+    channel = connection.channel()
+
+    channel.queue_declare(queue=QUEUE_IN, durable=True)
+    channel.queue_declare(queue=QUEUE_OUT, durable=True)
+    channel.basic_qos(prefetch_count=1)
+
+    channel.basic_consume(
+        queue=QUEUE_IN,
+        on_message_callback=callback
+    )
+
+    print("Semantic worker ready", flush=True)
+    channel.start_consuming()
+
+
+if __name__ == "__main__":
+    main()

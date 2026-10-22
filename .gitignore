@@ -1,0 +1,13 @@
+.env
+firebase_credentials.json
+
+__pycache__/
+*.pyc 
+.venv/
+venv/
+
+data/
+*.db
+
+.DS_Store
+.vscode/
