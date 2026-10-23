@@ -70,3 +70,11 @@ class SCICalculation(BaseModel):
         default=None,
         gt=0
     )
+
+class ActionCreate(BaseModel):
+    text: str = Field(
+	min_length=1,
+	max_length=250
+    )
+    request_id: str | None = None
+
