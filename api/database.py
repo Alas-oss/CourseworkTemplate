@@ -95,3 +95,77 @@ def initialise_database():
             """,
             carbon
         )
+
+TABLES = {"microservice_costs", "carbon_profiles"}
+
+def _check(table):
+    if table not in TABLES:
+        raise ValueError("Unknown table")
+
+def list_rows(table):
+    _check(table)
+
+    with connection() as c:
+        return [dict(r) for r in c.execute(f"SELECT * FROM {table} ORDER BY service_name"
+        )
+    ]
+
+def get_row(table, i):
+    _check(table)
+
+    with connection() as c:
+        row = c.execute(
+            f"SELECT * FROM {table} WHERE id=?", (i,)
+        ).fetchone()
+
+        return dict(row) if row else None
+def insert_row(table, data):
+    _check(table)
+
+    columns = ", ".join(data)
+    marks = ", ".join("?" for _ in data)
+
+    with connection() as c:
+        cursor = c.execute(
+            f"INSERT INTO {table}({columns}) VALUES({marks})",
+            list(data.values())
+        )
+
+        return dict(
+            c.execute(
+                f"SELECT * FROM {table} WHERE id=?",
+                (cursor.lastrowid,)
+            ).fetchone()
+        )
+
+def update_row(table, i, data):
+    _check(table)
+
+    sets = ", ".join(f"{k}=?" for k in data)
+
+    with connection() as c:
+        cursor = c.execute(
+            f"UPDATE {table} SET {sets}, updated_at=CURRENT_TIMESTAMP "
+            "WHERE id=?",
+            [*data.values(), i]
+        )
+
+        if cursor.rowcount == 0:
+            return None
+
+        return dict(
+            c.execute(
+                f"SELECT * FROM {table} WHERE id=?", (i,)
+            ).fetchone()
+        )
+
+
+def delete_row(table, i):
+    _check(table)
+
+    with connection() as c:
+        cursor = c.execute(
+            f"DELETE FROM {table} WHERE id=?", (i,)
+        )
+
+        return cursor.rowcount > 0

@@ -1,8 +1,15 @@
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException
-
-from database import connection, initialise_database
+import sqlite3
+from database import (
+    connection,
+    initialise_database,
+    list_rows,
+    insert_row,
+    update_row,
+    delete_row
+)
 from game import fresh, present, apply
 from models import *
 
@@ -128,39 +135,203 @@ def get_request(rid: str, user: dict = Depends(current_user)):
 
 # GET /api/v1/costs
 # Return all service cost records ordered by service name.
+def cost_out(row):
+    row["enabled_by_default"] = bool(row["enabled_by_default"])
+    return row
+
+def create_record(table, data):
+    try:
+        return insert_row(table, data)
+    except sqlite3.IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="Duplicate service_name or invalid values"
+        )
+
+def update_record(table, i, body):
+    data = body.model_dump(exclude_none=True)
+
+    if not data:
+        raise HTTPException(
+            status_code=400,
+            detail="No fields to update"
+        )
+
+    row = update_row(table, i, data)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Record not found")
 
 
+    return row
+
+
+def delete_record(table, i):
+    if not delete_row(table, i):
+        raise HTTPException(status_code=404, detail="Record not found")
+
+
+    return {"deleted": i}
+
+@app.get("/api/v1/costs")
+def list_costs():
+    return [cost_out(r) for r in list_rows("microservice_costs")]
 # POST /api/v1/costs
 # Create and return a service cost record; reject duplicate service names.
-
+@app.post("/api/v1/costs", status_code=201)
+def create_cost(body: CostCreate):
+    return cost_out(
+        create_record("microservice_costs", body.model_dump())
+    )
 
 # PUT /api/v1/costs/{i}
 # Partially update an existing cost record and return the resulting record.
+@app.put("/api/v1/costs/{i}")
+def update_cost(i: int, body: CostUpdate):
+    return cost_out(update_record("microservice_costs", i, body))
 
 
 # DELETE /api/v1/costs/{i}
 # Delete a cost record.
+@app.delete("/api/v1/costs/{i}")
+def delete_cost(i: int):
+    return delete_record("microservice_costs", i)
 
 
 # POST /api/v1/costs/calculate
 # Calculate per-service subtotals and the total cost for the requested duration.
+@app.post("/api/v1/costs/calcualte")
+def calculate_costs(body: CostCalculation):
+    rows = [cost_out(r) for r in list_rows("microservice_costs")]
 
+    if body.services is None:
+        chosen = [r for r in rows if r["enabled_by_default"]]
+    else:
+        by_name = {r["service_name"]: r for r in rows}
+        missing = [s for s in body.services if s not in by_name]
+
+        if missing:
+            raise HTTPException( status_code=404,
+                detail="Unknown services: " + ", ".join(missing)
+            )
+
+        chosen = [by_name[s] for s in dict.fromkeys(body.services)]
+
+    if any(n < 0 for n in body.instances.values()):
+        raise HTTPException(
+            status_code=422,
+            detail="Instance counts cannot be negative"
+        )
+
+    currencies = {r["currency"] for r in chosen}
+
+    if len(currencies) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail="Selected services use different currencies"
+        )
+
+    lines = []
+    total = 0.0
+
+    for r in chosen:
+        count = body.instances.get(r["service_name"], 1)
+        subtotal = r["cost_per_hour"] * count * body.hours
+        total += subtotal
+
+        lines.append({
+            "service_name": r["service_name"],
+            "cost_per_hour": r["cost_per_hour"],
+            "instances": count, 
+            "hours": body.hours,
+            "subtotal": rounds(subtotal, 6)
+        })
+
+    return {
+        "hours": body.hours,
+        "currency": currencies.pop() if currencies else "GBP",
+        "services": lines,
+        "total": round(total, 6)
+    }
 
 # GET /api/v1/carbon
 # Return all carbon profiles ordered by service name.
-
+@app.get("/api/v1/carbon")
+def list_carbon():
+    return list_rows("carbon_profiles")
 
 # POST /api/v1/carbon
 # Create and return a carbon profile; reject duplicate service names.
-
+@app.post("/api/v1/carbon", status_code=201)
+def create_carbon(body: CarbonCreate):
+    return create_record("carbon_profiles", body.model_dump())
 
 # PUT /api/v1/carbon/{i}
 # Partially update an existing carbon profile and return the resulting record.
-
+@app.put("/api/v1/carbon/{i}")
+def update_carbon(i: int, body: CarbonUpdate):
+    return update_record("carbon_profiles", i, body)
 
 # DELETE /api/v1/carbon/{i}
 # Delete a carbon profile.
-
+@app.delete("/api/v1/carbon/{i}")
+def delete_carbon(i: int):
+    return delete_record("carbon_profiles", i)
 
 # POST /api/v1/carbon/sci
 # Calculate energy, operational emissions, embodied emissions, and SCI.
+
+
+@app.post("/api/v1/costs/calculate")
+def calculate_costs(body: CostCalculation):
+    rows = [cost_out(r) for r in list_rows("microservice_costs")]
+
+    if body.services is None:
+        chosen = [r for r in rows if r["enabled_by_default"]]
+    else:
+        by_name = {r["service_name"]: r for r in rows}
+        missing = [s for s in body.services if s not in by_name]
+
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail="Unknown services: " + ", ".join(missing)
+            )
+
+        chosen = [by_name[s] for s in dict.fromkeys(body.services)]
+
+    if any(n < 0 for n in body.instances.values()):
+        raise HTTPException(
+            status_code=422,
+            detail="Instance counts cannot be negative"
+        )
+
+    currencies = {r["currency"] for r in chosen}
+
+    if len(currencies) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail="Selected services use different currencies"
+        )
+
+    lines = []
+    total = 0.0
+
+    for r in chosen:
+        count = body.instances.get(r["service_name"], 1)
+        subtotal = r["cost_per_hour"] * count * body.hours
+        total += subtotal
+
+        lines.append({
+            "service_name": r["service_name"],
+            "cost_per_hour": r["cost_per_hour"],
+            "instances": count,
+            "hours": body.hours,
+            "subtotal": round(subtotal, 6)
+        })
+
+    return {
+        "hours": body.hours,
+        "currency": currencies.pop() if currencies else "GBP",
+        "services": lines,
+        "total": round(total, 6)
+    }
