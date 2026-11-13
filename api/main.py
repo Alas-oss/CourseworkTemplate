@@ -1,7 +1,10 @@
+import sqlite3
+import threading
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException
-import sqlite3
+
+import messaging
 from database import (
     connection,
     initialise_database,
@@ -10,31 +13,22 @@ from database import (
     update_row,
     delete_row
 )
-from game import fresh, present, apply
-from models import *
 from firebase_authentication import get_current_user
+from game import fresh, present
+from models import *
+from pipeline import handle_semantic_result, public_request
+from state import (
+    delete_request,
+    load_game,
+    load_request,
+    ping,
+    save_game,
+    save_request
+)
 
 
 # Create the AI Archive API.
 app = FastAPI(title="The AI Archive API")
-
-GAMES = {}
-REQUESTS = {}
-
-def save_game(gid, state):
-    GAMES[gid] = state
-
-def load_game(gid):
-    return GAMES.get(gid)
-
-def save_request(rid, data):
-    REQUESTS[rid] = data
-
-def load_request(rid):
-    return REQUESTS.get(rid)
-
-def current_user():
-    return {"uid": "dev-user"}
 
 def owned_game(gid, user):
     state = load_game(gid)
@@ -49,19 +43,34 @@ def owned_game(gid, user):
 def startup():
     initialise_database()
 
+    if messaging.ENABLED:
+        threading.Thread(
+            target=messaging.consume,
+            args=("semantic.results", handle_semantic_result),
+            daemon=True
+        ).start()
+
 # GET /health
 # Confirm that the API and its required state service are available.
 @app.get("/health")
 def health():
     try:
         with connection() as c:
-             c.execute("SELECT 1")
+            c.execute("SELECT 1")
     except Exception:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
+    try:
+        ping()
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="State service unavailable"
+        )
+
     return {
         "status": "healthy",
-        "database": "sqlite", 
+        "database": "sqlite",
         "authentication": "firebase"
     }
 # GET /api/v1/authentication/me
@@ -94,8 +103,8 @@ def get_game(gid: str, user:dict = Depends(get_current_user)):
 # Return the existing request when the same request_id is submitted again.
 @app.post("/api/v1/games/{gid}/actions")
 def create_action(
-    gid: str, 
-    body: ActionCreate, 
+    gid: str,
+    body: ActionCreate,
     user: dict = Depends(get_current_user)
 ):
     owned_game(gid, user)
@@ -109,7 +118,8 @@ def create_action(
                 status_code=409,
                 detail="request_id already used for another game"
             )
-        return existing
+
+        return public_request(existing)
 
     request = {
         "request_id": rid,
@@ -118,6 +128,20 @@ def create_action(
         "status": "PENDING"
     }
     save_request(rid, request)
+
+    try:
+        messaging.publish(
+            "semantic.requests",
+            messaging.envelope(
+                "semantic.requested", rid, {"text": body.text}
+            )
+        )
+    except Exception:
+        delete_request(rid)
+        raise HTTPException(
+            status_code=503,
+            detail="Message broker unavailable"
+        )
 
     return request
 
@@ -132,7 +156,7 @@ def get_request(rid: str, user: dict = Depends(get_current_user)):
 
     owned_game(request["game_id"], user)
 
-    return request
+    return public_request(request)
 
 # GET /api/v1/costs
 # Return all service cost records ordered by service name.

@@ -10,6 +10,11 @@ services:
     volumes:
       - ./database:/data
       - ./firebase_credentials.json:/app/firebase_credentials.json:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -36,6 +41,14 @@ services:
       timeout: 10s
       retries: 10
       start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   frontend:
     build: ./frontend
