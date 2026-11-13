@@ -88,7 +88,7 @@ class TestAPI(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_unknown_request_is_494(self):
+    def test_unknown_request_is_404(self):
         r = self.client.get("/api/v1/requests/nope")
         self.assertEqual(r.status_code, 404)
 
