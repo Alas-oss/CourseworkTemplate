@@ -16,7 +16,12 @@ from database import (
 from firebase_authentication import get_current_user
 from game import fresh, present
 from models import *
-from pipeline import handle_semantic_result, public_request
+from pipeline import (
+    expire_if_stuck,
+    handle_llm_result,
+    handle_semantic_result,
+    public_request
+)
 from state import (
     delete_request,
     load_game,
@@ -44,11 +49,15 @@ def startup():
     initialise_database()
 
     if messaging.ENABLED:
-        threading.Thread(
-            target=messaging.consume,
-            args=("semantic.results", handle_semantic_result),
-            daemon=True
-        ).start()
+        for queue, handler in (
+            ("semantic.results", handle_semantic_result),
+            ("llm.results", handle_llm_result),
+        ):
+            threading.Thread(
+                target=messaging.consume,
+                args=(queue, handler),
+                daemon=True
+            ).start()
 
 # GET /health
 # Confirm that the API and its required state service are available.
