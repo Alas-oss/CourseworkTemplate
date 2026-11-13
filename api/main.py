@@ -12,6 +12,7 @@ from database import (
 )
 from game import fresh, present, apply
 from models import *
+from firebase_authentication import get_current_user
 
 
 # Create the AI Archive API.
@@ -66,14 +67,14 @@ def health():
 # GET /api/v1/authentication/me
 # Return the identity of the authenticated user.
 @app.get("/api/v1/authentication/me")
-def me(user: dict = Depends(current_user)):
+def me(user: dict = Depends(get_current_user)):
     return user
 
 
 # POST /api/v1/games
 # Create a new game owned by the authenticated user and return its initial state.
 @app.post("/api/v1/games")
-def create_game(user: dict = Depends(current_user)):
+def create_game(user: dict = Depends(get_current_user)):
     gid = str(uuid.uuid4())
     state = fresh(user["uid"])
     save_game(gid, state)
@@ -83,7 +84,7 @@ def create_game(user: dict = Depends(current_user)):
 # GET /api/v1/games/{gid}
 # Return a game only when it exists and belongs to the authenticated user.
 @app.get("/api/v1/games/{gid}")
-def get_game(gid: str, user:dict = Depends(current_user)):
+def get_game(gid: str, user:dict = Depends(get_current_user)):
     state = owned_game(gid, user)
 
     return {"game_id": gid, **present(state)}
@@ -95,7 +96,7 @@ def get_game(gid: str, user:dict = Depends(current_user)):
 def create_action(
     gid: str, 
     body: ActionCreate, 
-    user: dict = Depends(current_user)
+    user: dict = Depends(get_current_user)
 ):
     owned_game(gid, user)
 
@@ -123,7 +124,7 @@ def create_action(
 # GET /api/v1/requests/{rid}
 # Return the current state of an action request after checking game ownership.
 @app.get("/api/v1/requests/{rid}")
-def get_request(rid: str, user: dict = Depends(current_user)):
+def get_request(rid: str, user: dict = Depends(get_current_user)):
     request = load_request(rid)
 
     if request is None:

@@ -5,18 +5,23 @@ os.environ["DATABASE_PATH"] = "/tmp/test_cloud_ai.db"
 import unittest
 
 from fastapi.testclient import TestClient
-
+from firebase_authentication import get_current_user
 from main import app
 
 class TestAPI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        app.dependency_overrides[get_current_user] = lambda: {
+            "uid": "test-user",
+            "email": "test@example.com"
+        }
         cls.ctx = TestClient(app)
         cls.client = cls.ctx.__enter__()
 
     @classmethod
     def tearDownClass(cls):
         cls.ctx.__exit__(None, None, None)
+        app.dependency_overrides.clear()
 
     def new_game(self):
         r = self.client.post("/api/v1/games")

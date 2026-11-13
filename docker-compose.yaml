@@ -9,6 +9,7 @@ services:
       - "8000:8000"
     volumes:
       - ./database:/data
+      - ./firebase_credentials.json:/app/firebase_credentials.json:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
