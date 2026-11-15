@@ -1,47 +1,56 @@
 # The AI Archive
 
-Cloud-based text adventure with a semantic action classifier, a REST API,
-SQLite cost and carbon data, and an LLM guide.
+A text adventure with a semantic action classifier, an LLM guide, a REST API,
+Firebase authentication, Redis game state and SQLite cost and carbon data.
 
 ## Requirements
 
 - Docker with Docker Compose v2
-- 4 CPU cores, 16 GB RAM, 50 GB storage
-- A `.env` file and a `firebase_credentials.json` file in the project root
-  (both included in this submission)
+- 4 CPU cores, 16 GB RAM, 50 GB storage, internet access on first start
+- `.env` and `firebase_credentials.json` in the project root (both are
+  included in the submission ZIP)
 
 ## Deploy
 
     docker compose build
     docker compose up
 
-First build takes several minutes (it downloads PyTorch and the semantic
-model). Nothing else needs to be configured.
+The first start downloads two Ollama models (about 1.3 GB) into a Docker
+volume. Wait for the `llm-worker` log line `LLM worker ready` before playing.
 
 ## Use
 
-- Frontend: http://localhost:8080
+- Game: http://localhost:8080 (register, then type commands such as
+  "take the access card")
 - API docs: http://localhost:8000/docs
 - Health: http://localhost:8000/health
 
-## Current status 
+## Architecture
 
-Implemented: semantic worker container, API with game, request, cost and
-carbon endpoints, SQLite persistence in `./database`, RabbitMQ, frontend.
+frontend (nginx) -> api (FastAPI) -> RabbitMQ -> semantic-worker -> RabbitMQ
+-> api (game engine) -> RabbitMQ -> llm-worker (Ollama) -> RabbitMQ -> api.
+Redis holds games and requests, SQLite (`./database`) holds costs and carbon
+data, and Firebase authenticates users.
 
-Not yet implemented: queue wiring between API and workers, Redis state,
-Firebase authentication (the API uses a temporary stub user), LLM worker,
-monitoring, SCI endpoint. Test the API through the docs page.
+Queues: `semantic.requests`, `semantic.results`, `llm.requests`,
+`llm.results`.
+
+## Models
+
+Chat: `qwen2.5:1.5b`. Embeddings: `nomic-embed-text`. Both run on CPU.
+The guide retrieves instructions from `descriptions/knowledge` and answers in
+at most 45 words. If the LLM is slow, the API answers with the game engine's
+own message after 20 seconds.
 
 ## Tests
 
-    docker build -t api ./api
-    docker run --rm --entrypoint python api -m unittest discover -v
+    docker compose build
+    docker compose run --rm --no-deps --entrypoint python api -m unittest discover -v
+    docker compose run --rm --no-deps --entrypoint python llm-worker -m unittest test_worker -v
+    docker compose run --rm --no-deps --entrypoint python semantic-worker -m unittest test_worker -v
 
-    docker build -t semantic-worker ./semantic_worker
-    docker run --rm --entrypoint python semantic-worker -m unittest test_worker -v
+## Status
 
-## Services
-
-api, semantic-worker, llm-worker, rabbitmq, frontend (tests runs with
-`docker compose --profile test up`).
+Implemented: semantic worker, API, queues, Redis, Firebase authentication,
+LLM worker, cost and carbon CRUD. Still to do: monitoring, security
+hardening, SCI endpoint, system tests.
