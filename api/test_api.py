@@ -3,7 +3,8 @@ import os
 os.environ["DATABASE_PATH"] = "/tmp/test_cloud_ai.db"
 
 import unittest
-
+os.environ["REDIS_URL"] = ""
+os.environ["RABBITMQ_URL"] = ""
 from fastapi.testclient import TestClient
 from firebase_authentication import get_current_user
 from main import app

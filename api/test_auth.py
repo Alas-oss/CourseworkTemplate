@@ -6,7 +6,8 @@ import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-
+os.environ["REDIS_URL"] = ""
+os.environ["RABBITMQ_URL"] = ""
 from firebase_authentication import FirebaseNotConfigured
 from main import app
 

@@ -6,7 +6,8 @@ import unittest
 import uuid
 
 from fastapi.testclient import TestClient
-
+os.environ["REDIS_URL"] = ""
+os.environ["RABBITMQ_URL"] = ""
 from main import app
 
 

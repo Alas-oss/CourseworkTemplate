@@ -1,7 +1,8 @@
 import os
 
 os.environ["DATABASE_PATH"] = "/tmp/test_cloud_ai.db"
-
+os.environ["REDIS_URL"] = ""
+os.environ["RABBITMQ_URL"] = ""
 import time
 import unittest
 import uuid
