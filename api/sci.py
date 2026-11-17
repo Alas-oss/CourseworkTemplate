@@ -1,7 +1,8 @@
 def _round(value):
     return round(value, 6)
 
-def calculate_sci(profiles, dunctional_units=None):
+
+def calculate_sci(profiles, functional_units=None):
     if not profiles:
         raise ValueError("No carbon profiles selected")
 
@@ -12,7 +13,7 @@ def calculate_sci(profiles, dunctional_units=None):
 
         if len(units) > 1 or len(names) > 1:
             raise ValueError(
-                "Selected services use different functional units; " \
+                "Selected services use different functional units; "
                 "send functional_units to use one value for all"
             )
 
