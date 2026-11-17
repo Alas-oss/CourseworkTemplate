@@ -30,7 +30,7 @@ from state import (
     save_game,
     save_request
 )
-
+from sci import calculate_sci
 
 # Create the AI Archive API.
 app = FastAPI(title="The AI Archive API")
@@ -164,6 +164,8 @@ def get_request(rid: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Request not found")
 
     owned_game(request["game_id"], user)
+
+    request = expire_if_stuck(request)
 
     return public_request(request)
 
@@ -313,7 +315,33 @@ def delete_carbon(i: int):
 
 # POST /api/v1/carbon/sci
 # Calculate energy, operational emissions, embodied emissions, and SCI.
+@app.post("/api/v1/carbon/sci")
+def carbon_sci(body: SCICalculation):
+    profiles = list_rows("carbon_profiles")
 
+    if body.services is not None:
+        if not body.services:
+            raise HTTPException(
+                status_code=422,
+                detail="services cannot be an empty list"
+            )
+
+        by_name = {p["service_name"]: p for p in profiles}
+        missing = [s for s in body.services if s not in by_name]
+
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail="Unknown services: " + ", ".join(missing)
+            )
+
+        profiles = [by_name[s] for s in dict.fromkeys(body.services)]
+
+    try:
+        return calculate_sci(profiles, body.functional_units)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    
 
 @app.post("/api/v1/costs/calculate")
 def calculate_costs(body: CostCalculation):
