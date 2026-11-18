@@ -131,10 +131,15 @@ services:
       - test
     environment:
       BASE_URL: "http://api:8000"
+      PROMETHEUS_URL: "http://prometheus:9090"
+    volumes:
+      - ./frontend/firebase-config.js:/config/firebase-config.js:ro
     depends_on:
       api:
         condition: service_healthy
       llm-worker:
+        condition: service_started
+      prometheus:
         condition: service_started
 
 volumes:
