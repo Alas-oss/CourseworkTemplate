@@ -10,6 +10,8 @@ services:
     volumes:
       - ./database:/data
       - ./firebase_credentials.json:/app/firebase_credentials.json:ro
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -25,6 +27,8 @@ services:
   semantic-worker:
     build: ./semantic_worker
     env_file: .env
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -33,6 +37,8 @@ services:
     build: ./llm_worker
     env_file: .env
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./descriptions/knowledge:/knowledge:ro
     depends_on:
@@ -73,10 +79,47 @@ services:
       retries: 20
       start_period: 15s
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      api:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-archive-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - prometheus
+
   frontend:
     build: ./frontend
     ports:
       - "8080:80"
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       api:
         condition: service_healthy
@@ -96,3 +139,5 @@ services:
 
 volumes:
   ollama-data:
+  prometheus-data:
+  grafana-data:

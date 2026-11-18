@@ -9,6 +9,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from firebase_authentication import get_current_user
 from main import app
 from sci import calculate_sci
 
@@ -54,12 +55,17 @@ class TestCalculateSCI(unittest.TestCase):
 class TestSCIEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        app.dependency_overrides[get_current_user] = lambda: {
+            "uid": "test-user",
+            "email": None
+        }
         cls.ctx = TestClient(app)
         cls.client = cls.ctx.__enter__()
 
     @classmethod
     def tearDownClass(cls):
         cls.ctx.__exit__(None, None, None)
+        app.dependency_overrides.clear()
 
     def sci(self, body):
         return self.client.post("/api/v1/carbon/sci", json=body)

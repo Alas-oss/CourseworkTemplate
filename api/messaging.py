@@ -5,6 +5,8 @@ import uuid
 
 import pika
 
+import metrics
+
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "")
 ENABLED = bool(RABBITMQ_URL)
 
@@ -36,6 +38,7 @@ def envelope(event_type, correlation_id, payload):
 
 
 def publish(queue, message):
+
     if not ENABLED:
         return False
 
@@ -75,12 +78,18 @@ def consume(queue, handler):
                 try:
                     handler(json.loads(body))
                     ch.basic_ack(method.delivery_tag)
+                    metrics.queue_messages.labels(
+                        queue=queue, outcome="ok"
+                    ).inc()
                 except Exception as error:
                     print(
                         f"Failed to handle message on {queue}: {error}",
                         flush=True
                     )
                     ch.basic_nack(method.delivery_tag, requeue=False)
+                    metrics.queue_messages.labels(
+                        queue=queue, outcome="error"
+                    ).inc()
 
             channel.basic_consume(
                 queue=queue,

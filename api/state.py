@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 import redis
 
@@ -7,6 +8,7 @@ REDIS_URL = os.getenv("REDIS_URL", "")
 TTL_SECONDS = int(os.getenv("STATE_TTL_SECONDS", "86400"))
 
 _memory = {}
+_counts = {}
 _client = None
 
 
@@ -73,3 +75,28 @@ def ping():
         _redis().ping()
 
     return True
+
+
+def rate_limited(key, limit, window=60):
+   
+    bucket = int(time.time() // window)
+    name = f"rate:{key}:{bucket}"
+
+    try:
+        if using_redis():
+            client = _redis()
+            count = client.incr(name)
+
+            if count == 1:
+                client.expire(name, window * 2)
+        else:
+            if len(_counts) > 10000:
+                _counts.clear()
+
+            count = _counts.get(name, 0) + 1
+            _counts[name] = count
+    except Exception as error:
+        print(f"Rate limiter unavailable: {error}", flush=True)
+        return False
+
+    return count > limit
