@@ -2,6 +2,7 @@ import os
 import time
 
 import messaging
+import metrics
 import state
 from game import apply, present
 
@@ -28,6 +29,7 @@ def public_state(game):
 def public_request(request):
     view = dict(request)
     view.pop("waiting_since", None)
+    view.pop("created_at", None)
 
     if view.get("status") != "COMPLETED":
         view.pop("game_state", None)
@@ -35,10 +37,17 @@ def public_request(request):
     return view
 
 
-def complete(request, narrative):
+def complete(request, narrative, source="engine"):
     request["ai_response"] = {"message": narrative}
     request["status"] = "COMPLETED"
     state.save_request(request["request_id"], request)
+
+    metrics.narratives.labels(source=source).inc()
+
+    created = request.get("created_at")
+
+    if created:
+        metrics.pipeline_seconds.observe(max(0.0, time.time() - created))
 
 
 def llm_payload(request):
@@ -67,7 +76,7 @@ def narrate(request):
     fallback = request["game_result"]["message"]
 
     if not messaging.ENABLED:
-        complete(request, fallback)
+        complete(request, fallback, "engine")
         return
 
     try:
@@ -81,7 +90,7 @@ def narrate(request):
         )
     except Exception as error:
         print(f"Could not reach the LLM queue: {error}", flush=True)
-        complete(request, fallback)
+        complete(request, fallback, "engine")
 
 
 def expire_if_stuck(request):
@@ -89,7 +98,7 @@ def expire_if_stuck(request):
         waited = time.time() - request.get("waiting_since", time.time())
 
         if waited > LLM_TIMEOUT:
-            complete(request, request["game_result"]["message"])
+            complete(request, request["game_result"]["message"], "timeout")
 
     return request
 
@@ -114,6 +123,11 @@ def handle_semantic_result(message):
     success, text = apply(game, action, entities)
     state.save_game(request["game_id"], game)
 
+    metrics.game_actions.labels(
+        action=action,
+        success=str(bool(success)).lower()
+    ).inc()
+
     request["semantic_result"] = {
         "action": action,
         "confidence": result.get("confidence", 0.0),
@@ -135,5 +149,8 @@ def handle_llm_result(message):
     if request is None or request.get("status") != "WAITING_FOR_NARRATIVE":
         return
 
-    text = (message.get("payload") or {}).get("message")
-    complete(request, text or request["game_result"]["message"])
+    payload = message.get("payload") or {}
+    text = payload.get("message")
+    source = "llm_fallback" if payload.get("fallback") else "llm"
+
+    complete(request, text or request["game_result"]["message"], source)
