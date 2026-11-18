@@ -1,13 +1,15 @@
 import os
 
 os.environ["DATABASE_PATH"] = "/tmp/test_cloud_ai.db"
+os.environ["REDIS_URL"] = ""
+os.environ["RABBITMQ_URL"] = ""
 
 import unittest
 import uuid
 
 from fastapi.testclient import TestClient
-os.environ["REDIS_URL"] = ""
-os.environ["RABBITMQ_URL"] = ""
+
+from firebase_authentication import get_current_user
 from main import app
 
 
@@ -15,15 +17,28 @@ def unique(prefix="svc"):
     return prefix + "-" + uuid.uuid4().hex[:8]
 
 
+def start_client(cls):
+    app.dependency_overrides[get_current_user] = lambda: {
+        "uid": "test-user",
+        "email": None
+    }
+    cls.ctx = TestClient(app)
+    cls.client = cls.ctx.__enter__()
+
+
+def stop_client(cls):
+    cls.ctx.__exit__(None, None, None)
+    app.dependency_overrides.clear()
+
+
 class TestCosts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ctx = TestClient(app)
-        cls.client = cls.ctx.__enter__()
+        start_client(cls)
 
     @classmethod
     def tearDownClass(cls):
-        cls.ctx.__exit__(None, None, None)
+        stop_client(cls)
 
     def make_cost(self, **extra):
         payload = {
@@ -143,12 +158,11 @@ class TestCosts(unittest.TestCase):
 class TestCarbon(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ctx = TestClient(app)
-        cls.client = cls.ctx.__enter__()
+        start_client(cls)
 
     @classmethod
     def tearDownClass(cls):
-        cls.ctx.__exit__(None, None, None)
+        stop_client(cls)
 
     def make_profile(self):
         payload = {
