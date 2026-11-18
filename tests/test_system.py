@@ -1,3 +1,13 @@
+"""End-to-end system tests for The AI Archive.
+
+They run against the live stack (see the `tests` service in
+docker-compose.yaml) and use the real Firebase project: each run registers two
+throwaway users through Firebase's REST API and deletes them afterwards.
+
+Run:
+    docker compose up -d
+    docker compose --profile test run --rm tests
+"""
 import os
 import re
 import time
@@ -10,13 +20,14 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 CONFIG_FILE = os.getenv("FIREBASE_CONFIG_FILE", "/config/firebase-config.js")
 
-POLL_TIMEOUT = 90
-STARTUP_TIMEOUT = 180
+POLL_TIMEOUT = 90          # seconds to wait for one command to complete
+STARTUP_TIMEOUT = 180      # seconds to wait for the API to become healthy
 WORD_LIMIT = 45
 
-IDENTITY = "https://identitytoolkit.googleapis.cpm/v1/accounts"
+IDENTITY = "https://identitytoolkit.googleapis.com/v1/accounts"
 
 _users = []
+
 
 def firebase_api_key():
     key = os.getenv("FIREBASE_API_KEY")
@@ -32,7 +43,9 @@ def firebase_api_key():
 
     return match.group(1)
 
+
 class User:
+    """A throwaway Firebase user."""
 
     def __init__(self):
         self.email = f"systemtest-{uuid.uuid4().hex[:12]}@example.com"
@@ -68,18 +81,20 @@ class User:
             timeout=30
         )
 
+
 def tearDownModule():
     for user in _users:
         try:
             user.delete()
-        except:
+        except Exception as error:
             print("Could not delete test user:", error)
+
 
 def wait_for_api():
     deadline = time.time() + STARTUP_TIMEOUT
 
     while time.time() < deadline:
-        try: 
+        try:
             if requests.get(BASE_URL + "/health", timeout=5).ok:
                 return
         except requests.RequestException:
@@ -100,10 +115,12 @@ def api(method, path, user=None, **kwargs):
         method, BASE_URL + path, headers=headers, timeout=30, **kwargs
     )
 
+
 def new_game(user):
     reply = api("POST", "/api/v1/games", user)
     assert reply.status_code == 200, reply.text
     return reply.json()["game_id"]
+
 
 def submit(user, gid, text, request_id=None):
     body = {"text": text}
@@ -111,7 +128,8 @@ def submit(user, gid, text, request_id=None):
     if request_id:
         body["request_id"] = request_id
 
-    return api("POST", f"/api/v1/games/{gid}.actions", user, json=body)
+    return api("POST", f"/api/v1/games/{gid}/actions", user, json=body)
+
 
 def wait_for_completion(user, rid):
     deadline = time.time() + POLL_TIMEOUT
@@ -129,10 +147,12 @@ def wait_for_completion(user, rid):
 
     raise AssertionError("Request never completed, last state: " + str(last))
 
+
 def run_command(user, gid, text):
     reply = submit(user, gid, text)
     assert reply.status_code == 200, reply.text
     return wait_for_completion(user, reply.json()["request_id"])
+
 
 class SystemTests(unittest.TestCase):
     @classmethod
@@ -141,6 +161,9 @@ class SystemTests(unittest.TestCase):
         cls.alice = User()
         cls.bob = User()
 
+    # ------------------------------------------------------------------
+    # Health and access control
+    # ------------------------------------------------------------------
     def test_01_health(self):
         reply = api("GET", "/health")
         self.assertEqual(reply.status_code, 200)
@@ -169,6 +192,9 @@ class SystemTests(unittest.TestCase):
         self.assertEqual(reply.status_code, 200)
         self.assertEqual(reply.json()["uid"], self.alice.uid)
 
+    # ------------------------------------------------------------------
+    # Games
+    # ------------------------------------------------------------------
     def test_10_new_game_starts_in_reception(self):
         reply = api("POST", "/api/v1/games", self.alice)
         self.assertEqual(reply.status_code, 200)
