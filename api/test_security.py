@@ -16,9 +16,14 @@ from main import app
 
 VERIFY = "firebase_authentication.verify_firebase_token"
 
-PROTECTED_ROUTES = [
+# Always need a logged-in user.
+LOGIN_ROUTES = [
     ("get", "/api/v1/authentication/me"),
     ("post", "/api/v1/games"),
+]
+
+# Need a logged-in user only when COST_CARBON_AUTH=required.
+DATA_ROUTES = [
     ("get", "/api/v1/costs"),
     ("post", "/api/v1/costs"),
     ("put", "/api/v1/costs/1"),
@@ -30,6 +35,8 @@ PROTECTED_ROUTES = [
     ("delete", "/api/v1/carbon/1"),
     ("post", "/api/v1/carbon/sci"),
 ]
+
+REQUIRED = {"COST_CARBON_AUTH": "required"}
 
 
 def login_as(uid):
@@ -55,9 +62,9 @@ class SecurityTestCase(unittest.TestCase):
         app.dependency_overrides.clear()
 
 
-class TestAuthenticationRequired(SecurityTestCase):
-    def test_every_protected_route_rejects_anonymous_requests(self):
-        for method, path in PROTECTED_ROUTES:
+class TestAuthentication(SecurityTestCase):
+    def test_login_endpoints_reject_anonymous_requests(self):
+        for method, path in LOGIN_ROUTES:
             with self.subTest(route=method.upper() + " " + path):
                 r = getattr(self.client, method)(path)
                 self.assertEqual(r.status_code, 401)
@@ -66,10 +73,39 @@ class TestAuthenticationRequired(SecurityTestCase):
         self.assertEqual(self.client.get("/health").status_code, 200)
         self.assertEqual(self.client.get("/metrics").status_code, 200)
 
-    def test_real_token_path_opens_costs(self):
+    def test_data_endpoints_are_open_by_default(self):
+        self.assertEqual(self.client.get("/api/v1/costs").status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/carbon").status_code, 200)
+        self.assertEqual(
+            self.client.post("/api/v1/costs/calculate", json={}).status_code,
+            200
+        )
+        self.assertEqual(
+            self.client.post("/api/v1/carbon/sci", json={}).status_code, 200
+        )
+
+    def test_invalid_token_is_rejected_even_when_login_is_optional(self):
+        with patch(VERIFY, side_effect=ValueError("bad token")):
+            r = self.client.get(
+                "/api/v1/costs",
+                headers={"Authorization": "Bearer junk"}
+            )
+
+        self.assertEqual(r.status_code, 401)
+
+    def test_data_endpoints_reject_anonymous_when_required(self):
+        with patch.dict(os.environ, REQUIRED):
+            for method, path in DATA_ROUTES:
+                with self.subTest(route=method.upper() + " " + path):
+                    r = getattr(self.client, method)(path)
+                    self.assertEqual(r.status_code, 401)
+
+    def test_valid_token_works_when_required(self):
         claims = {"uid": "u-token", "email": "a@example.com"}
 
-        with patch(VERIFY, return_value=claims):
+        with patch.dict(os.environ, REQUIRED), patch(
+            VERIFY, return_value=claims
+        ):
             r = self.client.get(
                 "/api/v1/costs",
                 headers={"Authorization": "Bearer good"}
@@ -77,13 +113,6 @@ class TestAuthenticationRequired(SecurityTestCase):
 
         self.assertEqual(r.status_code, 200)
         self.assertGreater(len(r.json()), 0)
-
-    def test_logged_in_user_can_use_costs_and_sci(self):
-        login_as("u-1")
-        self.assertEqual(self.client.get("/api/v1/costs").status_code, 200)
-        self.assertEqual(
-            self.client.post("/api/v1/carbon/sci", json={}).status_code, 200
-        )
 
 
 class TestHeadersAndLimits(SecurityTestCase):
@@ -134,6 +163,22 @@ class TestHeadersAndLimits(SecurityTestCase):
         self.assertEqual(r["status"], "PENDING")
 
 
+class TestResponseAliases(SecurityTestCase):
+    def test_cost_calculation_has_total_cost(self):
+        r = self.client.post(
+            "/api/v1/costs/calculate",
+            json={"services": ["api"], "hours": 2}
+        ).json()
+        self.assertAlmostEqual(r["total"], 0.06, places=6)
+        self.assertEqual(r["total"], r["total_cost"])
+
+    def test_sci_has_short_aliases(self):
+        r = self.client.post("/api/v1/carbon/sci", json={}).json()
+        self.assertEqual(r["sci"], r["sci_gco2e_per_unit"])
+        self.assertEqual(r["energy_kwh"], r["total_energy_kwh"])
+        self.assertAlmostEqual(r["sci"], 0.05718, places=6)
+
+
 class TestMetrics(SecurityTestCase):
     def metrics_text(self):
         return self.client.get("/metrics").text
@@ -154,7 +199,9 @@ class TestMetrics(SecurityTestCase):
 
     def test_duration_histogram_is_exposed(self):
         self.client.get("/health")
-        self.assertIn("http_request_duration_seconds_bucket", self.metrics_text())
+        self.assertIn(
+            "http_request_duration_seconds_bucket", self.metrics_text()
+        )
 
 
 if __name__ == "__main__":

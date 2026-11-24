@@ -4,7 +4,7 @@ import threading
 import time
 import uuid
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 import messaging
@@ -246,9 +246,26 @@ def get_request(rid: str, user: dict = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
-# Cost and carbon records (SQLite). Every endpoint needs a logged-in user.
+# Cost and carbon records (SQLite)
+#
+# These hold reference data, not personal data. COST_CARBON_AUTH decides who
+# may use them:
+#   optional (default): no login needed, but a token that is sent must be
+#                       valid (an invalid one gets 401)
+#   required:           a valid Firebase token is needed for every call
 # ---------------------------------------------------------------------------
-PROTECTED = [Depends(get_current_user)]
+def cost_carbon_access(
+    authorization: str | None = Header(default=None, alias="Authorization")
+):
+    mode = (os.getenv("COST_CARBON_AUTH") or "optional").strip().lower()
+
+    if mode == "required" or authorization:
+        return get_current_user(authorization)
+
+    return None
+
+
+DATA_ACCESS = [Depends(cost_carbon_access)]
 
 
 def cost_out(row):
@@ -292,14 +309,14 @@ def delete_record(table, i):
 
 # GET /api/v1/costs
 # Return all service cost records ordered by service name.
-@app.get("/api/v1/costs", dependencies=PROTECTED)
+@app.get("/api/v1/costs", dependencies=DATA_ACCESS)
 def list_costs():
     return [cost_out(r) for r in list_rows("microservice_costs")]
 
 
 # POST /api/v1/costs
 # Create and return a service cost record; reject duplicate service names.
-@app.post("/api/v1/costs", status_code=201, dependencies=PROTECTED)
+@app.post("/api/v1/costs", status_code=201, dependencies=DATA_ACCESS)
 def create_cost(body: CostCreate):
     return cost_out(
         create_record("microservice_costs", body.model_dump())
@@ -308,21 +325,21 @@ def create_cost(body: CostCreate):
 
 # PUT /api/v1/costs/{i}
 # Partially update an existing cost record and return the resulting record.
-@app.put("/api/v1/costs/{i}", dependencies=PROTECTED)
+@app.put("/api/v1/costs/{i}", dependencies=DATA_ACCESS)
 def update_cost(i: int, body: CostUpdate):
     return cost_out(update_record("microservice_costs", i, body))
 
 
 # DELETE /api/v1/costs/{i}
 # Delete a cost record.
-@app.delete("/api/v1/costs/{i}", dependencies=PROTECTED)
+@app.delete("/api/v1/costs/{i}", dependencies=DATA_ACCESS)
 def delete_cost(i: int):
     return delete_record("microservice_costs", i)
 
 
 # POST /api/v1/costs/calculate
 # Calculate per-service subtotals and the total cost for the requested duration.
-@app.post("/api/v1/costs/calculate", dependencies=PROTECTED)
+@app.post("/api/v1/costs/calculate", dependencies=DATA_ACCESS)
 def calculate_costs(body: CostCalculation):
     rows = [cost_out(r) for r in list_rows("microservice_costs")]
 
@@ -374,41 +391,42 @@ def calculate_costs(body: CostCalculation):
         "hours": body.hours,
         "currency": currencies.pop() if currencies else "GBP",
         "services": lines,
-        "total": round(total, 6)
+        "total": round(total, 6),
+        "total_cost": round(total, 6)
     }
 
 
 # GET /api/v1/carbon
 # Return all carbon profiles ordered by service name.
-@app.get("/api/v1/carbon", dependencies=PROTECTED)
+@app.get("/api/v1/carbon", dependencies=DATA_ACCESS)
 def list_carbon():
     return list_rows("carbon_profiles")
 
 
 # POST /api/v1/carbon
 # Create and return a carbon profile; reject duplicate service names.
-@app.post("/api/v1/carbon", status_code=201, dependencies=PROTECTED)
+@app.post("/api/v1/carbon", status_code=201, dependencies=DATA_ACCESS)
 def create_carbon(body: CarbonCreate):
     return create_record("carbon_profiles", body.model_dump())
 
 
 # PUT /api/v1/carbon/{i}
 # Partially update an existing carbon profile and return the resulting record.
-@app.put("/api/v1/carbon/{i}", dependencies=PROTECTED)
+@app.put("/api/v1/carbon/{i}", dependencies=DATA_ACCESS)
 def update_carbon(i: int, body: CarbonUpdate):
     return update_record("carbon_profiles", i, body)
 
 
 # DELETE /api/v1/carbon/{i}
 # Delete a carbon profile.
-@app.delete("/api/v1/carbon/{i}", dependencies=PROTECTED)
+@app.delete("/api/v1/carbon/{i}", dependencies=DATA_ACCESS)
 def delete_carbon(i: int):
     return delete_record("carbon_profiles", i)
 
 
 # POST /api/v1/carbon/sci
 # Calculate energy, operational emissions, embodied emissions, and SCI.
-@app.post("/api/v1/carbon/sci", dependencies=PROTECTED)
+@app.post("/api/v1/carbon/sci", dependencies=DATA_ACCESS)
 def carbon_sci(body: SCICalculation):
     profiles = list_rows("carbon_profiles")
 
@@ -431,6 +449,12 @@ def carbon_sci(body: SCICalculation):
         profiles = [by_name[s] for s in dict.fromkeys(body.services)]
 
     try:
-        return calculate_sci(profiles, body.functional_units)
+        result = calculate_sci(profiles, body.functional_units)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error))
+
+    # Short aliases for clients that look for these names.
+    result["sci"] = result["sci_gco2e_per_unit"]
+    result["energy_kwh"] = result["total_energy_kwh"]
+
+    return result
