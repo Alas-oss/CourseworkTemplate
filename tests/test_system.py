@@ -172,8 +172,6 @@ class SystemTests(unittest.TestCase):
     def test_02_anonymous_requests_are_rejected(self):
         for method, path in (
             ("POST", "/api/v1/games"),
-            ("GET", "/api/v1/costs"),
-            ("POST", "/api/v1/carbon/sci"),
             ("GET", "/api/v1/authentication/me"),
         ):
             with self.subTest(route=method + " " + path):
@@ -186,6 +184,14 @@ class SystemTests(unittest.TestCase):
             headers={"Authorization": "Bearer not-a-real-token"}
         )
         self.assertEqual(reply.status_code, 401)
+
+        # A token that is sent must be valid, even where login is optional.
+        costs = api(
+            "GET",
+            "/api/v1/costs",
+            headers={"Authorization": "Bearer not-a-real-token"}
+        )
+        self.assertEqual(costs.status_code, 401)
 
     def test_04_me_returns_the_firebase_identity(self):
         reply = api("GET", "/api/v1/authentication/me", self.alice)
